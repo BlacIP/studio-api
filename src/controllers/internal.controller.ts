@@ -514,6 +514,52 @@ export async function processOutbox(req: Request, res: Response): Promise<void> 
   }
 }
 
+export async function processOutboxIfNeeded(req: Request, res: Response): Promise<void> {
+  try {
+    await refreshOutboxStatus();
+    const statusRes = await pool.query(
+      `SELECT status, pending_count, last_degraded_at, last_recovered_at
+       FROM sync_outbox_status
+       WHERE id = 1`
+    );
+    const statusRow = statusRes.rows[0] || { status: 'healthy', pending_count: 0 };
+    const pendingCount = Number(statusRow.pending_count || 0);
+
+    if (pendingCount === 0) {
+      res.json({
+        success: true,
+        skipped: true,
+        processed: 0,
+        failed: 0,
+        pending_count: 0,
+        status: statusRow.status,
+      });
+      return;
+    }
+
+    const { processed, failed } = await processOutboxUntilEmpty(25);
+    await refreshOutboxStatus();
+    const refreshed = await pool.query(
+      `SELECT status, pending_count, last_degraded_at, last_recovered_at
+       FROM sync_outbox_status
+       WHERE id = 1`
+    );
+    const updated = refreshed.rows[0] || statusRow;
+
+    res.json({
+      success: true,
+      skipped: false,
+      processed,
+      failed,
+      pending_count: updated.pending_count,
+      status: updated.status,
+    });
+  } catch (error) {
+    console.error('Outbox process-if-needed error', error);
+    res.status(500).json({ error: 'Failed to process outbox' });
+  }
+}
+
 export async function getOutboxStatus(req: Request, res: Response): Promise<void> {
   try {
     const statusRes = await pool.query('SELECT * FROM sync_outbox_status WHERE id = 1');

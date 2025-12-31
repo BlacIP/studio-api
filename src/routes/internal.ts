@@ -12,6 +12,7 @@ import {
   saveLegacyPhotoRecord,
   getOutboxStatus,
   processOutbox,
+  processOutboxIfNeeded,
   updateLegacyClient,
   updateStudioStatus,
 } from '../controllers/internal.controller';
@@ -32,6 +33,8 @@ router.delete('/legacy/photos/:id', internalAuth, deleteLegacyPhoto);
 router.get('/legacy/gallery/:slug', internalAuth, getGalleryBySlug);
 router.post('/outbox/process', cronAuth, processOutbox);
 router.get('/outbox/process', cronAuth, processOutbox);
+router.post('/outbox/process-if-needed', cronAuth, processOutboxIfNeeded);
+router.get('/outbox/process-if-needed', cronAuth, processOutboxIfNeeded);
 router.get('/outbox/status', cronAuth, getOutboxStatus);
 
 export default router;
