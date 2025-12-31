@@ -94,10 +94,11 @@ export async function savePhotoRecord(req: AuthedRequest, res: Response): Promis
 
     const filename = publicId.split('/').pop() || 'uploaded_file';
     await pool.query(
-      `INSERT INTO photos (id, client_id, url, filename, public_id, size, width, height, format, resource_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO photos (id, studio_id, client_id, url, filename, public_id, size, width, height, format, resource_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         randomUUID(),
+        req.auth.studioId,
         clientId,
         url,
         filename,

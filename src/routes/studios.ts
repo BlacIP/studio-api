@@ -280,6 +280,7 @@ router.patch('/me', authMiddleware, async (req: any, res) => {
       slug,
       logo_url,
       logo_public_id,
+      clear_logo,
       contact_email,
       contact_phone,
       address,
@@ -311,6 +312,7 @@ router.patch('/me', authMiddleware, async (req: any, res) => {
     const normalizedContactPhone = normalizeOptionalString(contact_phone);
     const normalizedAddress = normalizeOptionalString(address);
     const normalizedSocialLinks = normalizeSocialLinks(social_links);
+    const clearLogo = clear_logo === true;
 
     const existingLogoRes = await pool.query(
       'SELECT logo_public_id FROM studios WHERE id = $1',
@@ -323,8 +325,8 @@ router.patch('/me', authMiddleware, async (req: any, res) => {
        SET name = $1,
            slug = $2,
            status = 'ACTIVE',
-           logo_url = COALESCE($3, logo_url),
-           logo_public_id = COALESCE($4, logo_public_id),
+           logo_url = CASE WHEN $10 THEN NULL ELSE COALESCE($3, logo_url) END,
+           logo_public_id = CASE WHEN $10 THEN NULL ELSE COALESCE($4, logo_public_id) END,
            contact_email = COALESCE($5, contact_email),
            contact_phone = COALESCE($6, contact_phone),
            address = COALESCE($7, address),
@@ -341,6 +343,7 @@ router.patch('/me', authMiddleware, async (req: any, res) => {
         normalizedAddress,
         normalizedSocialLinks,
         studioId,
+        clearLogo,
       ]
     );
 
@@ -354,7 +357,13 @@ router.patch('/me', authMiddleware, async (req: any, res) => {
       created_at: studio.created_at,
     });
 
-    if (existingLogoPublicId && normalizedLogoPublicId && existingLogoPublicId !== normalizedLogoPublicId) {
+    if (clearLogo && existingLogoPublicId) {
+      try {
+        await cloudinary.uploader.destroy(existingLogoPublicId);
+      } catch (error) {
+        console.error('Studio logo delete error', error);
+      }
+    } else if (existingLogoPublicId && normalizedLogoPublicId && existingLogoPublicId !== normalizedLogoPublicId) {
       try {
         await cloudinary.uploader.destroy(existingLogoPublicId);
       } catch (error) {

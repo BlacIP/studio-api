@@ -111,6 +111,7 @@ export function getSwaggerSpec() {
               slug: { type: 'string' },
               logo_url: { type: 'string' },
               logo_public_id: { type: 'string' },
+              clear_logo: { type: 'boolean' },
               contact_email: { type: 'string', format: 'email' },
               contact_phone: { type: 'string' },
               address: { type: 'string' },
