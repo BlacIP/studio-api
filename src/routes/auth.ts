@@ -5,6 +5,7 @@ import { signToken } from '../lib/auth';
 import { pool } from '../lib/db';
 import { StudioUser } from '../types';
 import { syncStudioOwnerToAdmin, syncStudioToAdmin } from '../lib/admin-sync';
+import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
@@ -268,6 +269,90 @@ router.post('/login', async (req, res) => {
     console.error('Login error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+/**
+ * @openapi
+ * /api/auth/me:
+ *   get:
+ *     summary: Get current user
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current user details
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/me', authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.auth?.userId;
+    const studioId = req.auth?.studioId;
+    if (!userId || !studioId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT u.id,
+              u.email,
+              u.role,
+              u.permissions,
+              u.display_name,
+              u.avatar_url,
+              s.slug AS studio_slug,
+              s.name AS studio_name,
+              s.status AS studio_status
+       FROM studio_users u
+       JOIN studios s ON s.id = u.studio_id
+       WHERE u.id = $1 AND u.studio_id = $2`,
+      [userId, studioId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const row = result.rows[0];
+    res.json({
+      id: row.id,
+      email: row.email,
+      name: row.display_name || row.studio_name || row.email,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+      role: row.role,
+      permissions: row.permissions,
+      studioId: studioId,
+      studioSlug: row.studio_slug,
+      studioName: row.studio_name,
+      studioStatus: row.studio_status,
+    });
+  } catch (err) {
+    console.error('Auth me error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/auth/logout:
+ *   post:
+ *     summary: Logout current user
+ *     tags: [Auth]
+ *     responses:
+ *       200:
+ *         description: Logged out
+ */
+router.post('/logout', (_req, res) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    sameSite: process.env.VERCEL ? 'none' : 'lax',
+    secure: !!process.env.VERCEL,
+    path: '/',
+  });
+  res.json({ success: true });
 });
 
 export default router;

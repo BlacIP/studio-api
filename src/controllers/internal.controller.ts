@@ -4,13 +4,14 @@ import { pool } from '../lib/db';
 import cloudinary from '../lib/cloudinary';
 import { signUploadRequest } from '../lib/cloudinary';
 import { syncClientStatsToAdmin, syncClientToAdmin, syncStudioToAdmin } from '../lib/admin-sync';
+import { refreshOutboxStatus } from '../lib/outbox';
+import { processOutboxUntilEmpty } from '../lib/outbox-processor';
 
 const ALLOWED_STATUSES = new Set(['ACTIVE', 'SUSPENDED', 'DELETED', 'ONBOARDING']);
 const LEGACY_SLUG = process.env.LEGACY_STUDIO_SLUG || 'legacy-studio';
 const LEGACY_NAME = process.env.LEGACY_STUDIO_NAME || 'Legacy Studio';
 const LEGACY_ID = process.env.LEGACY_STUDIO_ID || null;
 let photoColumnsCache: Set<string> | null = null;
-
 async function getLegacyStudio() {
   const result = await pool.query('SELECT id, name, slug FROM studios WHERE slug = $1', [LEGACY_SLUG]);
   if (result.rows.length > 0) {
@@ -500,5 +501,32 @@ export async function deleteLegacyPhoto(req: Request, res: Response): Promise<vo
   } catch (error) {
     console.error('Delete legacy photo error', error);
     res.status(500).json({ error: 'Delete failed' });
+  }
+}
+
+export async function processOutbox(req: Request, res: Response): Promise<void> {
+  try {
+    const { processed, failed } = await processOutboxUntilEmpty(25);
+    res.json({ success: true, processed, failed });
+  } catch (error) {
+    console.error('Outbox process error', error);
+    res.status(500).json({ error: 'Failed to process outbox' });
+  }
+}
+
+export async function getOutboxStatus(req: Request, res: Response): Promise<void> {
+  try {
+    const statusRes = await pool.query('SELECT * FROM sync_outbox_status WHERE id = 1');
+    if (statusRes.rows.length === 0) {
+      await refreshOutboxStatus();
+      const refreshed = await pool.query('SELECT * FROM sync_outbox_status WHERE id = 1');
+      res.json(refreshed.rows[0] || { status: 'healthy', pending_count: 0 });
+      return;
+    }
+
+    res.json(statusRes.rows[0]);
+  } catch (error) {
+    console.error('Outbox status error', error);
+    res.status(500).json({ error: 'Failed to fetch outbox status' });
   }
 }

@@ -1,3 +1,6 @@
+import { enqueueOutbox, OutboxEventType } from './outbox';
+import { postToAdmin } from './admin-sync-client';
+
 type SyncClientPayload = {
   studioId: string;
   clientId: string;
@@ -40,42 +43,19 @@ type SyncStudioOwnerPayload = {
   deleted?: boolean;
 };
 
-function getAdminSyncConfig() {
-  const baseUrl = process.env.ADMIN_SYNC_URL;
-  const secret = process.env.ADMIN_SYNC_SECRET;
-  if (!baseUrl || !secret) {
-    return null;
-  }
-  return { baseUrl, secret };
-}
-
-async function postToAdmin(path: string, payload: unknown) {
-  const cfg = getAdminSyncConfig();
-  if (!cfg) {
-    return;
-  }
-
-  const trimmedPath = path.startsWith('/') ? path.slice(1) : path;
-  const baseUrl = cfg.baseUrl.endsWith('/') ? cfg.baseUrl : `${cfg.baseUrl}/`;
-  const url = new URL(trimmedPath, baseUrl).toString();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-admin-sync-secret': cfg.secret,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Admin sync failed (${res.status}): ${body}`);
+async function safePost(eventType: OutboxEventType, path: string, payload: unknown) {
+  try {
+    await postToAdmin(path, payload);
+  } catch (error: any) {
+    const message = error?.message || 'Admin sync failed';
+    await enqueueOutbox(eventType, payload, message);
+    console.error(`Admin sync error (${eventType}):`, error);
   }
 }
 
 export async function syncStudioToAdmin(payload: SyncStudioPayload) {
   try {
-    await postToAdmin('/studios/sync', payload);
+    await safePost('studio.sync', '/studios/sync', payload);
   } catch (error) {
     console.error('Admin studio sync error:', error);
   }
@@ -83,7 +63,7 @@ export async function syncStudioToAdmin(payload: SyncStudioPayload) {
 
 export async function syncClientToAdmin(payload: SyncClientPayload) {
   try {
-    await postToAdmin('/clients/sync', payload);
+    await safePost('client.sync', '/clients/sync', payload);
   } catch (error) {
     console.error('Admin client sync error:', error);
   }
@@ -91,7 +71,7 @@ export async function syncClientToAdmin(payload: SyncClientPayload) {
 
 export async function syncClientStatsToAdmin(payload: SyncClientStatsPayload) {
   try {
-    await postToAdmin('/clients/stats', payload);
+    await safePost('client.stats', '/clients/stats', payload);
   } catch (error) {
     console.error('Admin client stats sync error:', error);
   }
@@ -99,7 +79,7 @@ export async function syncClientStatsToAdmin(payload: SyncClientStatsPayload) {
 
 export async function syncStudioOwnerToAdmin(payload: SyncStudioOwnerPayload) {
   try {
-    await postToAdmin('/studios/owners/sync', payload);
+    await safePost('studio.owner.sync', '/studios/owners/sync', payload);
   } catch (error) {
     console.error('Admin studio owner sync error:', error);
   }

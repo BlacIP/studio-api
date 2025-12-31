@@ -27,6 +27,17 @@ export function getCloudinaryFolder({ studioId, clientId }: UploadFolderParams):
   return `${targetRoot}/${studioId}/${clientId}`;
 }
 
+type StudioLogoParams = {
+  studioId: string;
+};
+
+export function getStudioLogoFolder({ studioId }: StudioLogoParams): string {
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const root = process.env.CLOUDINARY_ROOT_FOLDER || 'photolibrary';
+  const targetRoot = isDevelopment ? `${root}-demo` : root;
+  return `${targetRoot}/studio-logo/${studioId}`;
+}
+
 export async function signUploadRequest(params: UploadFolderParams) {
   const timestamp = Math.round(new Date().getTime() / 1000);
   const apiSecret = cloudinary.config().api_secret || process.env.CLOUDINARY_API_SECRET;
@@ -39,4 +50,22 @@ export async function signUploadRequest(params: UploadFolderParams) {
   const signature = cloudinary.utils.api_sign_request({ timestamp, folder }, apiSecret);
 
   return { timestamp, signature, folder };
+}
+
+export async function signStudioLogoUploadRequest(params: StudioLogoParams) {
+  const timestamp = Math.round(new Date().getTime() / 1000);
+  const apiSecret = cloudinary.config().api_secret || process.env.CLOUDINARY_API_SECRET;
+
+  if (!apiSecret) {
+    throw new Error('Cloudinary API Secret not found');
+  }
+
+  const folder = getStudioLogoFolder(params);
+  const publicId = 'logo';
+  const signature = cloudinary.utils.api_sign_request(
+    { timestamp, folder, public_id: publicId, overwrite: true },
+    apiSecret
+  );
+
+  return { timestamp, signature, folder, publicId };
 }

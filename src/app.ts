@@ -9,6 +9,9 @@ import photoRoutes from './routes/photos';
 import galleryRoutes from './routes/gallery';
 import internalRoutes from './routes/internal';
 import { getSwaggerSpec } from './swagger';
+import { outboxFlushMiddleware } from './middleware/outbox';
+import { pool } from './lib/db';
+import { refreshOutboxStatus } from './lib/outbox';
 
 export function createApp(): Application {
   const app = express();
@@ -20,9 +23,44 @@ export function createApp(): Application {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
+  app.use(outboxFlushMiddleware);
 
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  app.get('/health', async (_req, res) => {
+    const payload: {
+      status: 'ok';
+      timestamp: string;
+      outbox?: {
+        status: string;
+        pending_count?: number;
+        last_degraded_at?: string | null;
+        last_recovered_at?: string | null;
+      };
+    } = { status: 'ok', timestamp: new Date().toISOString() };
+
+    try {
+      await refreshOutboxStatus();
+      const statusRes = await pool.query(
+        `SELECT status, pending_count, last_degraded_at, last_recovered_at
+         FROM sync_outbox_status
+         WHERE id = 1`
+      );
+      if (statusRes.rows.length > 0) {
+        const row = statusRes.rows[0];
+        payload.outbox = {
+          status: row.status,
+          pending_count: row.pending_count,
+          last_degraded_at: row.last_degraded_at,
+          last_recovered_at: row.last_recovered_at,
+        };
+      } else {
+        payload.outbox = { status: 'unknown' };
+      }
+    } catch (error) {
+      payload.outbox = { status: 'unknown' };
+      console.error('Health outbox status error', error);
+    }
+
+    res.json(payload);
   });
 
   const swaggerSpec = getSwaggerSpec();

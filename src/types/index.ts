@@ -16,4 +16,9 @@ export type Studio = {
   name?: string | null;
   slug?: string | null;
   status: string;
+  logo_url?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  address?: string | null;
+  social_links?: Record<string, string> | null;
 };

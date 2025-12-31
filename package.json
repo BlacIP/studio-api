@@ -8,7 +8,8 @@
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
     "migrate:legacy": "node scripts/migrate-legacy.js",
-    "backfill:owners": "node scripts/backfill-owners.js"
+    "backfill:owners": "node scripts/backfill-owners.js",
+    "outbox:process": "node scripts/process-outbox.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.0",

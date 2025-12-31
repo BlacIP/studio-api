@@ -13,11 +13,24 @@ type GalleryClientRow = {
   header_media_url: string | null;
   header_media_type: string | null;
   studio_slug?: string | null;
+  studio_name?: string | null;
+  studio_logo_url?: string | null;
+  studio_contact_email?: string | null;
+  studio_contact_phone?: string | null;
+  studio_address?: string | null;
+  studio_social_links?: Record<string, string> | null;
 };
 
 async function getClientByStudioAndSlug(studioSlug: string, clientSlug: string) {
   const result = await pool.query<GalleryClientRow>(
-    `SELECT c.*, s.slug AS studio_slug
+    `SELECT c.*,
+            s.slug AS studio_slug,
+            s.name AS studio_name,
+            s.logo_url AS studio_logo_url,
+            s.contact_email AS studio_contact_email,
+            s.contact_phone AS studio_contact_phone,
+            s.address AS studio_address,
+            s.social_links AS studio_social_links
      FROM clients c
      JOIN studios s ON s.id = c.studio_id
      WHERE s.slug = $1 AND c.slug = $2`,
@@ -28,7 +41,14 @@ async function getClientByStudioAndSlug(studioSlug: string, clientSlug: string) 
 
 async function getClientBySlug(clientSlug: string) {
   const result = await pool.query<GalleryClientRow>(
-    `SELECT c.*, s.slug AS studio_slug
+    `SELECT c.*,
+            s.slug AS studio_slug,
+            s.name AS studio_name,
+            s.logo_url AS studio_logo_url,
+            s.contact_email AS studio_contact_email,
+            s.contact_phone AS studio_contact_phone,
+            s.address AS studio_address,
+            s.social_links AS studio_social_links
      FROM clients c
      JOIN studios s ON s.id = c.studio_id
      WHERE c.slug = $1`,
@@ -53,6 +73,15 @@ async function respondWithGallery(client: GalleryClientRow, res: Response) {
     header_media_url: client.header_media_url,
     header_media_type: client.header_media_type,
     studio_slug: client.studio_slug,
+    studio: {
+      name: client.studio_name,
+      slug: client.studio_slug,
+      logo_url: client.studio_logo_url,
+      contact_email: client.studio_contact_email,
+      contact_phone: client.studio_contact_phone,
+      address: client.studio_address,
+      social_links: client.studio_social_links,
+    },
     photos: photosResult.rows,
   });
 }

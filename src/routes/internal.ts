@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { internalAuth } from '../middleware/internal';
+import { cronAuth } from '../middleware/cron';
 import {
   createLegacyClient,
   deleteLegacyClient,
@@ -9,6 +10,8 @@ import {
   listLegacyClients,
   listStudioOwners,
   saveLegacyPhotoRecord,
+  getOutboxStatus,
+  processOutbox,
   updateLegacyClient,
   updateStudioStatus,
 } from '../controllers/internal.controller';
@@ -27,5 +30,8 @@ router.post('/legacy/photos/upload-signature', internalAuth, getLegacyUploadSign
 router.post('/legacy/photos/save-record', internalAuth, saveLegacyPhotoRecord);
 router.delete('/legacy/photos/:id', internalAuth, deleteLegacyPhoto);
 router.get('/legacy/gallery/:slug', internalAuth, getGalleryBySlug);
+router.post('/outbox/process', cronAuth, processOutbox);
+router.get('/outbox/process', cronAuth, processOutbox);
+router.get('/outbox/status', cronAuth, getOutboxStatus);
 
 export default router;
