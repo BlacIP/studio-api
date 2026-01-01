@@ -88,7 +88,7 @@ router.post('/register', async (req, res) => {
       permissions: [],
     });
 
-    res.cookie('token', token, {
+    res.cookie('studio_token', token, {
       httpOnly: true,
       sameSite: process.env.VERCEL ? 'none' : 'lax',
       secure: !!process.env.VERCEL,
@@ -244,7 +244,7 @@ router.post('/login', async (req, res) => {
       permissions: user.permissions || undefined,
     });
 
-    res.cookie('token', token, {
+    res.cookie('studio_token', token, {
       httpOnly: true,
       sameSite: process.env.VERCEL ? 'none' : 'lax',
       secure: !!process.env.VERCEL,
@@ -346,7 +346,7 @@ router.get('/me', authMiddleware, async (req: any, res) => {
  *         description: Logged out
  */
 router.post('/logout', (_req, res) => {
-  res.clearCookie('token', {
+  res.clearCookie('studio_token', {
     httpOnly: true,
     sameSite: process.env.VERCEL ? 'none' : 'lax',
     secure: !!process.env.VERCEL,

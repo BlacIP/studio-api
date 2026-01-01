@@ -7,7 +7,7 @@ export interface AuthedRequest extends Request {
 
 export function authMiddleware(req: AuthedRequest, res: Response, next: NextFunction) {
   const token =
-    req.cookies?.token ||
+    req.cookies?.studio_token ||
     (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
       ? req.headers.authorization.substring(7)
       : null);

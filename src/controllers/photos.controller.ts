@@ -125,6 +125,144 @@ export async function savePhotoRecord(req: AuthedRequest, res: Response): Promis
   }
 }
 
+export async function savePhotoRecords(req: AuthedRequest, res: Response): Promise<void> {
+  try {
+    if (!req.auth?.studioId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    if (!canManagePhotos(req)) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const { clientId, photos } = req.body || {};
+    if (!clientId || !Array.isArray(photos)) {
+      res.status(400).json({ error: 'clientId and photos are required' });
+      return;
+    }
+
+    const maxBatch = Number(process.env.PHOTO_BULK_LIMIT || 20);
+    if (photos.length > maxBatch) {
+      res.status(413).json({ error: `Too many photos. Max ${maxBatch}` });
+      return;
+    }
+
+    const seen = new Set<string>();
+    const invalid: number[] = [];
+    const duplicates: string[] = [];
+    const normalized = photos
+      .map((photo: any, idx: number) => {
+        const publicId = photo?.publicId || photo?.public_id;
+        const url = photo?.url;
+        if (!publicId || !url) {
+          invalid.push(idx);
+          return null;
+        }
+        if (seen.has(publicId)) {
+          duplicates.push(publicId);
+          return null;
+        }
+        seen.add(publicId);
+        return {
+          publicId,
+          url,
+          bytes: photo?.bytes,
+          width: photo?.width,
+          height: photo?.height,
+          format: photo?.format,
+          resourceType: photo?.resourceType || photo?.resource_type,
+        };
+      })
+      .filter(Boolean) as Array<{
+        publicId: string;
+        url: string;
+        bytes?: number;
+        width?: number;
+        height?: number;
+        format?: string;
+        resourceType?: string;
+      }>;
+
+    if (normalized.length === 0) {
+      res.status(400).json({ error: 'No valid photos to save', invalid, duplicates });
+      return;
+    }
+
+    const clientCheck = await pool.query(
+      'SELECT id FROM clients WHERE id = $1 AND studio_id = $2',
+      [clientId, req.auth.studioId]
+    );
+    if (clientCheck.rows.length === 0) {
+      res.status(404).json({ error: 'Client not found' });
+      return;
+    }
+
+    const publicIds = normalized.map((photo) => photo.publicId);
+    const existing = await pool.query(
+      'SELECT public_id FROM photos WHERE studio_id = $1 AND client_id = $2 AND public_id = ANY($3::text[])',
+      [req.auth.studioId, clientId, publicIds]
+    );
+    const existingSet = new Set(existing.rows.map((row) => row.public_id as string));
+    const toInsert = normalized.filter((photo) => !existingSet.has(photo.publicId));
+
+    if (toInsert.length === 0) {
+      res.json({
+        inserted: 0,
+        skipped_existing: existingSet.size,
+        skipped_duplicate: duplicates.length,
+        invalid,
+      });
+      return;
+    }
+
+    const values: any[] = [];
+    const placeholders = toInsert.map((photo, idx) => {
+      const base = idx * 11;
+      const filename = photo.publicId.split('/').pop() || 'uploaded_file';
+      values.push(
+        randomUUID(),
+        req.auth?.studioId,
+        clientId,
+        photo.url,
+        filename,
+        photo.publicId,
+        photo.bytes || null,
+        photo.width || null,
+        photo.height || null,
+        photo.format || null,
+        photo.resourceType || null
+      );
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`;
+    });
+
+    await pool.query(
+      `INSERT INTO photos (id, studio_id, client_id, url, filename, public_id, size, width, height, format, resource_type)
+       VALUES ${placeholders.join(', ')}`,
+      values
+    );
+
+    const bytesTotal = toInsert.reduce((sum, photo) => sum + (photo.bytes ? Number(photo.bytes) : 0), 0);
+    await syncClientStatsToAdmin({
+      studioId: req.auth.studioId,
+      clientId,
+      deltaCount: toInsert.length,
+      deltaBytes: bytesTotal,
+    });
+
+    res.json({
+      inserted: toInsert.length,
+      skipped_existing: existingSet.size,
+      skipped_duplicate: duplicates.length,
+      invalid,
+    });
+  } catch (error) {
+    console.error('Save photo records error', error);
+    res.status(500).json({ error: 'Failed to save photo records' });
+  }
+}
+
 export async function deletePhoto(req: AuthedRequest, res: Response): Promise<void> {
   try {
     if (!req.auth?.studioId) {

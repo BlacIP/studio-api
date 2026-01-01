@@ -10,6 +10,7 @@ import {
   listLegacyClients,
   listStudioOwners,
   saveLegacyPhotoRecord,
+  saveLegacyPhotoRecords,
   getOutboxStatus,
   processOutbox,
   processOutboxIfNeeded,
@@ -29,6 +30,7 @@ router.put('/legacy/clients/:id', internalAuth, updateLegacyClient);
 router.delete('/legacy/clients/:id', internalAuth, deleteLegacyClient);
 router.post('/legacy/photos/upload-signature', internalAuth, getLegacyUploadSignature);
 router.post('/legacy/photos/save-record', internalAuth, saveLegacyPhotoRecord);
+router.post('/legacy/photos/save-records', internalAuth, saveLegacyPhotoRecords);
 router.delete('/legacy/photos/:id', internalAuth, deleteLegacyPhoto);
 router.get('/legacy/gallery/:slug', internalAuth, getGalleryBySlug);
 router.post('/outbox/process', cronAuth, processOutbox);

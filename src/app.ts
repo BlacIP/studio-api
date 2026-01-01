@@ -25,6 +25,23 @@ export function createApp(): Application {
   app.use(cookieParser());
   app.use(outboxFlushMiddleware);
 
+  const enableRequestLogging =
+    process.env.REQUEST_LOGS === 'true' || process.env.NODE_ENV !== 'production';
+  if (enableRequestLogging) {
+    app.use((req, res, next) => {
+      const start = Date.now();
+      res.on('finish', () => {
+        const ms = Date.now() - start;
+        const auth = (req as any).auth;
+        const actor = auth
+          ? ` user=${auth.userId} studio=${auth.studioId} role=${auth.role}`
+          : '';
+        console.log(`[${res.statusCode}] ${req.method} ${req.originalUrl} ${ms}ms${actor}`);
+      });
+      next();
+    });
+  }
+
   app.get('/health', async (_req, res) => {
     const payload: {
       status: 'ok';

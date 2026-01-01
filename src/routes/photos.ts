@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware, requireStudio } from '../middleware/auth';
-import { getUploadSignature, savePhotoRecord, deletePhoto } from '../controllers/photos.controller';
+import { getUploadSignature, savePhotoRecord, savePhotoRecords, deletePhoto } from '../controllers/photos.controller';
 
 const router = Router();
 
@@ -64,6 +64,55 @@ router.post('/photos/upload-signature', authMiddleware, requireStudio, getUpload
  *         description: Photo record saved
  */
 router.post('/photos/save-record', authMiddleware, requireStudio, savePhotoRecord);
+
+/**
+ * @openapi
+ * /api/photos/save-records:
+ *   post:
+ *     summary: Save photo records after batch upload
+ *     tags: [Photos]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - clientId
+ *               - photos
+ *             properties:
+ *               clientId:
+ *                 type: string
+ *                 format: uuid
+ *               photos:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - publicId
+ *                     - url
+ *                   properties:
+ *                     publicId:
+ *                       type: string
+ *                     url:
+ *                       type: string
+ *                     bytes:
+ *                       type: number
+ *                     width:
+ *                       type: number
+ *                     height:
+ *                       type: number
+ *                     format:
+ *                       type: string
+ *                     resourceType:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Photo records saved
+ */
+router.post('/photos/save-records', authMiddleware, requireStudio, savePhotoRecords);
 
 /**
  * @openapi
