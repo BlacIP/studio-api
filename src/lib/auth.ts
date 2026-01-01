@@ -10,7 +10,7 @@ export type AuthToken = {
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
-  console.warn('⚠️  JWT_SECRET is not set. Tokens cannot be verified.');
+  throw new Error('JWT_SECRET is required to start the API.');
 }
 
 export function signToken(payload: AuthToken, expiresIn: SignOptions['expiresIn'] = '7d'): string {
@@ -21,7 +21,6 @@ export function signToken(payload: AuthToken, expiresIn: SignOptions['expiresIn'
 }
 
 export function verifyToken(token: string): AuthToken | null {
-  if (!JWT_SECRET) return null;
   try {
     return jwt.verify(token, JWT_SECRET as Secret) as AuthToken;
   } catch (_err) {

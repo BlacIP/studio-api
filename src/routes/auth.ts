@@ -90,8 +90,8 @@ router.post('/register', async (req, res) => {
 
     res.cookie('studio_token', token, {
       httpOnly: true,
-      sameSite: process.env.VERCEL ? 'none' : 'lax',
-      secure: !!process.env.VERCEL,
+      sameSite: process.env.NODE_ENV === 'production' || process.env.VERCEL ? 'none' : 'lax',
+      secure: process.env.NODE_ENV === 'production' || process.env.VERCEL ? true : false,
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
@@ -246,8 +246,8 @@ router.post('/login', async (req, res) => {
 
     res.cookie('studio_token', token, {
       httpOnly: true,
-      sameSite: process.env.VERCEL ? 'none' : 'lax',
-      secure: !!process.env.VERCEL,
+      sameSite: process.env.NODE_ENV === 'production' || process.env.VERCEL ? 'none' : 'lax',
+      secure: process.env.NODE_ENV === 'production' || process.env.VERCEL ? true : false,
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
@@ -348,8 +348,8 @@ router.get('/me', authMiddleware, async (req: any, res) => {
 router.post('/logout', (_req, res) => {
   res.clearCookie('studio_token', {
     httpOnly: true,
-    sameSite: process.env.VERCEL ? 'none' : 'lax',
-    secure: !!process.env.VERCEL,
+    sameSite: process.env.NODE_ENV === 'production' || process.env.VERCEL ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production' || process.env.VERCEL ? true : false,
     path: '/',
   });
   res.json({ success: true });

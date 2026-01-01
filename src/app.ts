@@ -2,6 +2,8 @@ import express, { Application } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import swaggerUi from 'swagger-ui-express';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth';
 import studioRoutes from './routes/studios';
 import clientRoutes from './routes/clients';
@@ -16,14 +18,122 @@ import { refreshOutboxStatus } from './lib/outbox';
 export function createApp(): Application {
   const app = express();
 
+  app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    })
+  );
+
+  const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === 'true';
+  const normalizeOrigin = (value: string) => value.replace(/\/$/, '');
+  const toOrigin = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (!/^https?:\/\//.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
+    return trimmed;
+  };
+
+  const allowedOrigins = new Set<string>();
+  const originEnv = process.env.CORS_ALLOWED_ORIGINS || process.env.STUDIO_APP_URL || '';
+  [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:4000',
+    'http://127.0.0.1:4000',
+    process.env.PUBLIC_API_URL,
+    process.env.PRODUCTION_URL,
+    process.env.VERCEL_URL,
+    ...originEnv.split(','),
+  ]
+    .filter(Boolean)
+    .map((value) => toOrigin(String(value)))
+    .filter(Boolean)
+    .forEach((value) => allowedOrigins.add(normalizeOrigin(value)));
+
   app.use(cors({
-    origin: (origin, cb) => cb(null, true),
+    origin: (origin, cb) => {
+      if (!origin) {
+        return cb(null, true);
+      }
+
+      const normalized = normalizeOrigin(origin);
+      if (allowedOrigins.has(normalized)) {
+        return cb(null, true);
+      }
+
+      if (allowVercelPreviews && normalized.endsWith('.vercel.app')) {
+        return cb(null, true);
+      }
+
+      if (process.env.NODE_ENV === 'production') {
+        return cb(new Error('Not allowed by CORS'));
+      }
+
+      return cb(null, true);
+    },
     credentials: true,
   }));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
   app.use(outboxFlushMiddleware);
+
+  const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+  });
+
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+  });
+
+  app.use('/api', generalLimiter);
+  app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/register', authLimiter);
+
+  app.use((req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      return next();
+    }
+
+    if (req.headers['x-admin-sync-secret']) {
+      return next();
+    }
+
+    let origin = req.headers.origin as string | undefined;
+    if (!origin && req.headers.referer) {
+      try {
+        origin = new URL(req.headers.referer).origin;
+      } catch {
+        origin = undefined;
+      }
+    }
+
+    if (!origin) {
+      return next();
+    }
+
+    const normalized = normalizeOrigin(origin);
+    if (allowedOrigins.has(normalized)) {
+      return next();
+    }
+
+    if (allowVercelPreviews && normalized.endsWith('.vercel.app')) {
+      return next();
+    }
+
+    res.status(403).json({ error: 'Forbidden - CSRF protection' });
+  });
 
   const enableRequestLogging =
     process.env.REQUEST_LOGS === 'true' || process.env.NODE_ENV !== 'production';
@@ -80,11 +190,14 @@ export function createApp(): Application {
     res.json(payload);
   });
 
+  const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
   const swaggerSpec = getSwaggerSpec();
-  app.get('/openapi.json', (_req, res) => {
-    res.json(swaggerSpec);
-  });
-  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  if (enableSwagger) {
+    app.get('/openapi.json', (_req, res) => {
+      res.json(swaggerSpec);
+    });
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  }
 
   app.use('/api/auth', authRoutes);
   app.use('/api/studios', studioRoutes);
