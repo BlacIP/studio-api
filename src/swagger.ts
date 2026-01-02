@@ -50,6 +50,7 @@ export function getSwaggerSpec() {
             properties: {
               email: { type: 'string', format: 'email' },
               password: { type: 'string' },
+              displayName: { type: 'string' },
             },
             required: ['email', 'password'],
           },
@@ -58,6 +59,8 @@ export function getSwaggerSpec() {
             properties: {
               id: { type: 'string' },
               email: { type: 'string', format: 'email' },
+              displayName: { type: 'string' },
+              avatarUrl: { type: 'string' },
               role: { type: 'string' },
               permissions: { type: 'array', items: { type: 'string' } },
               studioId: { type: 'string' },

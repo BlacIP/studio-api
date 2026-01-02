@@ -8,6 +8,7 @@ ALTER TABLE studios
   ADD COLUMN IF NOT EXISTS social_links JSONB;
 
 ALTER TABLE studio_users
+  ALTER COLUMN password_hash DROP NOT NULL,
   ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'local',
   ADD COLUMN IF NOT EXISTS provider_id TEXT,
   ADD COLUMN IF NOT EXISTS display_name TEXT,
