@@ -14,6 +14,7 @@ import { getSwaggerSpec } from './swagger';
 import { outboxFlushMiddleware } from './middleware/outbox';
 import { pool } from './lib/db';
 import { refreshOutboxStatus } from './lib/outbox';
+import { errorHandler } from './middleware/error-handler';
 
 export function createApp(): Application {
   const app = express();
@@ -208,10 +209,7 @@ export function createApp(): Application {
 
   // TODO: add studio-scoped client/photo/galleries routes (copied/refined from photolibrary-api)
 
-  app.use((err: any, _req: any, res: any, _next: any) => {
-    console.error(err);
-    res.status(500).json({ error: 'Internal server error' });
-  });
+  app.use(errorHandler);
 
   return app;
 }

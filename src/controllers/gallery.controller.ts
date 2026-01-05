@@ -2,6 +2,9 @@ import { Response, Request } from 'express';
 import { pool } from '../lib/db';
 import archiver from 'archiver';
 import https from 'https';
+import { asyncHandler } from '../middleware/async-handler';
+import { AppError } from '../lib/errors';
+import { success } from '../lib/http';
 
 type GalleryClientRow = {
   id: string;
@@ -63,7 +66,7 @@ async function respondWithGallery(client: GalleryClientRow, res: Response) {
     [client.id]
   );
 
-  res.json({
+  return success(res, {
     id: client.id,
     name: client.name,
     slug: client.slug,
@@ -126,83 +129,71 @@ async function streamGalleryDownload(client: GalleryClientRow, res: Response) {
   await archive.finalize();
 }
 
-export async function getGallery(req: Request, res: Response): Promise<void> {
-  try {
-    const { studioSlug, clientSlug } = req.params;
-    const rows = await getClientByStudioAndSlug(studioSlug, clientSlug);
+export const getGallery = asyncHandler(async (req: Request, res: Response) => {
+  const { studioSlug, clientSlug } = req.params;
+  const rows = await getClientByStudioAndSlug(studioSlug, clientSlug);
 
-    if (rows.length === 0) {
-      res.status(404).json({ error: 'Client not found' });
-      return;
-    }
-
-    await respondWithGallery(rows[0], res);
-  } catch (error) {
-    console.error('Error fetching gallery:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+  if (rows.length === 0) {
+    throw new AppError('Client not found', 404);
   }
-}
 
-export async function getGalleryBySlug(req: Request, res: Response): Promise<void> {
-  try {
-    const { slug } = req.params;
-    const rows = await getClientBySlug(slug);
+  await respondWithGallery(rows[0], res);
+});
 
-    if (rows.length === 0) {
-      res.status(404).json({ error: 'Client not found' });
-      return;
-    }
+export const getGalleryBySlug = asyncHandler(async (req: Request, res: Response) => {
+  const { slug } = req.params;
+  const rows = await getClientBySlug(slug);
 
-    if (rows.length > 1) {
-      res.status(409).json({ error: 'Multiple studios found. Use studioSlug + clientSlug.' });
-      return;
-    }
-
-    await respondWithGallery(rows[0], res);
-  } catch (error) {
-    console.error('Error fetching gallery by slug:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+  if (rows.length === 0) {
+    throw new AppError('Client not found', 404);
   }
-}
 
-export async function downloadGallery(req: Request, res: Response): Promise<void> {
+  if (rows.length > 1) {
+    throw new AppError('Multiple studios found. Use studioSlug + clientSlug.', 409);
+  }
+
+  await respondWithGallery(rows[0], res);
+});
+
+export const downloadGallery = asyncHandler(async (req: Request, res: Response) => {
+  const { studioSlug, clientSlug } = req.params;
+  const rows = await getClientByStudioAndSlug(studioSlug, clientSlug);
+
+  if (rows.length === 0) {
+    throw new AppError('Gallery not found', 404);
+  }
+
   try {
-    const { studioSlug, clientSlug } = req.params;
-    const rows = await getClientByStudioAndSlug(studioSlug, clientSlug);
-
-    if (rows.length === 0) {
-      res.status(404).json({ error: 'Gallery not found' });
-      return;
-    }
-
     await streamGalleryDownload(rows[0], res);
   } catch (error) {
     console.error('Download gallery error:', error);
-    if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
+    if (!res.headersSent) {
+      throw new AppError('Download failed', 500);
+    }
   }
-}
+});
 
-export async function downloadGalleryBySlug(req: Request, res: Response): Promise<void> {
+export const downloadGalleryBySlug = asyncHandler(async (req: Request, res: Response) => {
+  const { slug } = req.params;
+  const rows = await getClientBySlug(slug);
+
+  if (rows.length === 0) {
+    throw new AppError('Gallery not found', 404);
+  }
+
+  if (rows.length > 1) {
+    throw new AppError('Multiple studios found. Use studioSlug + clientSlug.', 409);
+  }
+
   try {
-    const { slug } = req.params;
-    const rows = await getClientBySlug(slug);
-
-    if (rows.length === 0) {
-      res.status(404).json({ error: 'Gallery not found' });
-      return;
-    }
-
-    if (rows.length > 1) {
-      res.status(409).json({ error: 'Multiple studios found. Use studioSlug + clientSlug.' });
-      return;
-    }
-
     await streamGalleryDownload(rows[0], res);
   } catch (error) {
     console.error('Download gallery by slug error', error);
-    if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
+    if (!res.headersSent) {
+      throw new AppError('Download failed', 500);
+    }
   }
-}
+});
 
 function fetchImageStream(url: string, attempt = 1): Promise<any> {
   return new Promise((resolve) => {
