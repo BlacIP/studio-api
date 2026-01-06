@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { authMiddleware, requireStudio } from '../middleware/auth';
-import { getUploadSignature, savePhotoRecord, savePhotoRecords, deletePhoto } from '../controllers/photos.controller';
+import {
+  getUploadSignature,
+  savePhotoRecord,
+  savePhotoRecords,
+  deletePhoto,
+  downloadPhoto,
+} from '../controllers/photos.controller';
 
 const router = Router();
 
@@ -113,6 +119,34 @@ router.post('/photos/save-record', authMiddleware, requireStudio, savePhotoRecor
  *         description: Photo records saved
  */
 router.post('/photos/save-records', authMiddleware, requireStudio, savePhotoRecords);
+
+/**
+ * @openapi
+ * /api/download:
+ *   get:
+ *     summary: Download a photo by URL
+ *     tags: [Photos]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: url
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: filename
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: publicId
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Photo download stream
+ */
+router.get('/download', authMiddleware, requireStudio, downloadPhoto);
 
 /**
  * @openapi

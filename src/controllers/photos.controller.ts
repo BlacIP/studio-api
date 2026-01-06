@@ -1,13 +1,16 @@
+import http, { type IncomingMessage } from 'http';
+import https from 'https';
 import { Response } from 'express';
-import { randomUUID } from 'crypto';
-import { pool } from '../lib/db';
 import { AuthedRequest } from '../middleware/auth';
-import { signUploadRequest } from '../lib/cloudinary';
-import cloudinary from '../lib/cloudinary';
-import { syncClientStatsToAdmin } from '../lib/admin-sync';
 import { asyncHandler } from '../middleware/async-handler';
 import { AppError } from '../lib/errors';
 import { fail, success } from '../lib/http';
+import {
+  deletePhotoRecord,
+  getUploadSignaturePayload,
+  savePhotoRecord as savePhotoRecordService,
+  savePhotoRecords as savePhotoRecordsService,
+} from '../services/photos';
 
 function canManagePhotos(req: AuthedRequest) {
   const role = req.auth?.role;
@@ -29,38 +32,12 @@ export const getUploadSignature = asyncHandler(async (req: AuthedRequest, res: R
     throw new AppError('clientId is required', 400);
   }
 
-  const clientCheck = await pool.query(
-    'SELECT id FROM clients WHERE id = $1 AND studio_id = $2',
-    [clientId, req.auth.studioId]
-  );
-  if (clientCheck.rows.length === 0) {
-    throw new AppError('Client not found', 404);
-  }
-
-  const { timestamp, signature, folder } = await signUploadRequest({
+  const payload = await getUploadSignaturePayload({
     studioId: req.auth.studioId,
     clientId,
   });
 
-  const cfg = cloudinary.config();
-  const cloudName =
-    cfg.cloud_name ||
-    process.env.CLOUDINARY_CLOUD_NAME ||
-    process.env.CLOUDINARY_URL?.split('@')[1];
-  const apiKey =
-    cfg.api_key ||
-    process.env.CLOUDINARY_API_KEY ||
-    process.env.CLOUDINARY_URL?.split(':')[1]?.split('@')[0];
-
-  return success(res, {
-    timestamp,
-    signature,
-    folder,
-    cloudName,
-    apiKey,
-    cloud_name: cloudName,
-    api_key: apiKey,
-  });
+  return success(res, payload);
 });
 
 export const savePhotoRecord = asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -68,47 +45,26 @@ export const savePhotoRecord = asyncHandler(async (req: AuthedRequest, res: Resp
     throw new AppError('Unauthorized', 401);
   }
 
-  const { clientId, publicId, url, bytes, width, height, format, resourceType, resource_type } = req.body || {};
+  const { clientId, publicId, url, filename, bytes, width, height, format, resourceType, resource_type } = req.body || {};
 
   if (!clientId || !publicId || !url) {
     throw new AppError('clientId, publicId, and url are required', 400);
   }
 
-  const clientCheck = await pool.query(
-    'SELECT id FROM clients WHERE id = $1 AND studio_id = $2',
-    [clientId, req.auth.studioId]
-  );
-  if (clientCheck.rows.length === 0) {
-    throw new AppError('Client not found', 404);
-  }
-
-  const filename = publicId.split('/').pop() || 'uploaded_file';
-  await pool.query(
-    `INSERT INTO photos (id, studio_id, client_id, url, filename, public_id, size, width, height, format, resource_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-    [
-      randomUUID(),
-      req.auth.studioId,
-      clientId,
-      url,
-      filename,
-      publicId,
-      bytes || null,
-      width || null,
-      height || null,
-      format || null,
-      resourceType || resource_type || null,
-    ]
-  );
-
-  await syncClientStatsToAdmin({
+  const result = await savePhotoRecordService({
     studioId: req.auth.studioId,
     clientId,
-    deltaCount: 1,
-    deltaBytes: bytes ? Number(bytes) : 0,
+    publicId,
+    url,
+    filename,
+    bytes,
+    width,
+    height,
+    format,
+    resourceType: resourceType || resource_type,
   });
 
-  return success(res, { success: true });
+  return success(res, result);
 });
 
 export const savePhotoRecords = asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -125,115 +81,24 @@ export const savePhotoRecords = asyncHandler(async (req: AuthedRequest, res: Res
     throw new AppError('clientId and photos are required', 400);
   }
 
-  const maxBatch = Number(process.env.PHOTO_BULK_LIMIT || 20);
-  if (photos.length > maxBatch) {
-    throw new AppError(`Too many photos. Max ${maxBatch}`, 413);
-  }
+  const result = await savePhotoRecordsService({
+    studioId: req.auth.studioId,
+    clientId,
+    photos,
+  });
 
-  const seen = new Set<string>();
-  const invalid: number[] = [];
-  const duplicates: string[] = [];
-  const normalized = photos
-    .map((photo: any, idx: number) => {
-      const publicId = photo?.publicId || photo?.public_id;
-      const url = photo?.url;
-      if (!publicId || !url) {
-        invalid.push(idx);
-        return null;
-      }
-      if (seen.has(publicId)) {
-        duplicates.push(publicId);
-        return null;
-      }
-      seen.add(publicId);
-      return {
-        publicId,
-        url,
-        bytes: photo?.bytes,
-        width: photo?.width,
-        height: photo?.height,
-        format: photo?.format,
-        resourceType: photo?.resourceType || photo?.resource_type,
-      };
-    })
-    .filter(Boolean) as Array<{
-    publicId: string;
-    url: string;
-    bytes?: number;
-    width?: number;
-    height?: number;
-    format?: string;
-    resourceType?: string;
-  }>;
-
-  if (normalized.length === 0) {
-    return fail(res, 'No valid photos to save', 400, { invalid, duplicates });
-  }
-
-  const clientCheck = await pool.query(
-    'SELECT id FROM clients WHERE id = $1 AND studio_id = $2',
-    [clientId, req.auth.studioId]
-  );
-  if (clientCheck.rows.length === 0) {
-    throw new AppError('Client not found', 404);
-  }
-
-  const publicIds = normalized.map((photo) => photo.publicId);
-  const existing = await pool.query(
-    'SELECT public_id FROM photos WHERE studio_id = $1 AND client_id = $2 AND public_id = ANY($3::text[])',
-    [req.auth.studioId, clientId, publicIds]
-  );
-  const existingSet = new Set(existing.rows.map((row) => row.public_id as string));
-  const toInsert = normalized.filter((photo) => !existingSet.has(photo.publicId));
-
-  if (toInsert.length === 0) {
-    return success(res, {
-      inserted: 0,
-      skipped_existing: existingSet.size,
-      skipped_duplicate: duplicates.length,
-      invalid,
+  if (result.empty) {
+    return fail(res, 'No valid photos to save', 400, {
+      invalid: result.invalid,
+      duplicates: result.duplicates,
     });
   }
 
-  const values: any[] = [];
-  const placeholders = toInsert.map((photo, idx) => {
-    const base = idx * 11;
-    const filename = photo.publicId.split('/').pop() || 'uploaded_file';
-    values.push(
-      randomUUID(),
-      req.auth?.studioId,
-      clientId,
-      photo.url,
-      filename,
-      photo.publicId,
-      photo.bytes || null,
-      photo.width || null,
-      photo.height || null,
-      photo.format || null,
-      photo.resourceType || null
-    );
-    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`;
-  });
-
-  await pool.query(
-    `INSERT INTO photos (id, studio_id, client_id, url, filename, public_id, size, width, height, format, resource_type)
-     VALUES ${placeholders.join(', ')}`,
-    values
-  );
-
-  const bytesTotal = toInsert.reduce((sum, photo) => sum + (photo.bytes ? Number(photo.bytes) : 0), 0);
-  await syncClientStatsToAdmin({
-    studioId: req.auth.studioId,
-    clientId,
-    deltaCount: toInsert.length,
-    deltaBytes: bytesTotal,
-  });
-
   return success(res, {
-    inserted: toInsert.length,
-    skipped_existing: existingSet.size,
-    skipped_duplicate: duplicates.length,
-    invalid,
+    inserted: result.inserted,
+    skipped_existing: result.skipped_existing,
+    skipped_duplicate: result.skipped_duplicate,
+    invalid: result.invalid,
   });
 });
 
@@ -246,32 +111,116 @@ export const deletePhoto = asyncHandler(async (req: AuthedRequest, res: Response
     throw new AppError('Forbidden', 403);
   }
 
-  const { id } = req.params;
-  const photoResult = await pool.query(
-    `SELECT p.public_id, p.client_id, p.size
-     FROM photos p
-     JOIN clients c ON c.id = p.client_id
-     WHERE p.id = $1 AND c.studio_id = $2`,
-    [id, req.auth.studioId]
-  );
-  if (photoResult.rows.length === 0) {
-    throw new AppError('Photo not found', 404);
-  }
-
-  const { public_id: publicId, client_id: clientId, size } = photoResult.rows[0];
-  try {
-    await cloudinary.uploader.destroy(publicId);
-  } catch (cloudinaryError) {
-    console.error(`Failed to delete Cloudinary image: ${publicId}`, cloudinaryError);
-  }
-
-  await pool.query('DELETE FROM photos WHERE id = $1', [id]);
-  await syncClientStatsToAdmin({
+  const result = await deletePhotoRecord({
     studioId: req.auth.studioId,
-    clientId,
-    deltaCount: -1,
-    deltaBytes: size ? -Number(size) : 0,
+    photoId: req.params.id,
   });
 
-  return success(res, { success: true });
+  return success(res, result);
 });
+
+export const downloadPhoto = asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const url = typeof req.query.url === 'string' ? req.query.url : undefined;
+  if (!url) {
+    throw new AppError('url is required', 400);
+  }
+
+  const filename = resolveDownloadFilename({
+    filename: typeof req.query.filename === 'string' ? req.query.filename : undefined,
+    url,
+    publicId:
+      typeof req.query.publicId === 'string'
+        ? req.query.publicId
+        : typeof req.query.public_id === 'string'
+          ? req.query.public_id
+          : undefined,
+  });
+
+  const stream = await fetchImageStream(url);
+  if (!stream) {
+    throw new AppError('File not found', 404);
+  }
+
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  const contentType = stream.headers['content-type'];
+  if (contentType) {
+    res.setHeader('Content-Type', Array.isArray(contentType) ? contentType[0] : contentType);
+  }
+
+  stream.pipe(res);
+});
+
+function resolveDownloadFilename({
+  filename,
+  url,
+  publicId,
+}: {
+  filename?: string;
+  url: string;
+  publicId?: string;
+}) {
+  const direct = normalizeFilename(filename);
+  if (direct) return direct;
+
+  const fromUrl = normalizeFilename(extractFilenameFromUrl(url));
+  if (fromUrl) return fromUrl;
+
+  if (publicId) {
+    return publicId.split('/').pop() || publicId;
+  }
+
+  return 'download.jpg';
+}
+
+function extractFilenameFromUrl(url: string) {
+  try {
+    const pathname = new URL(url).pathname;
+    const lastSegment = pathname.split('/').pop();
+    return lastSegment ? decodeURIComponent(lastSegment) : null;
+  } catch {
+    const sanitized = url.split('?')[0];
+    const lastSegment = sanitized.split('/').pop();
+    return lastSegment ? decodeURIComponent(lastSegment) : null;
+  }
+}
+
+function normalizeFilename(value?: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function fetchImageStream(url: string, attempt = 1): Promise<IncomingMessage | null> {
+  return new Promise((resolve) => {
+    const protocol = url.startsWith('https') ? https : http;
+
+    const req = protocol.get(url, (response: IncomingMessage) => {
+      const statusCode = response.statusCode ?? 0;
+      if (statusCode >= 300 && statusCode < 400 && response.headers.location) {
+        if (attempt > 3) {
+          resolve(null);
+          return;
+        }
+        const redirectUrl = response.headers.location;
+        return resolve(fetchImageStream(redirectUrl, attempt + 1));
+      }
+
+      if (statusCode === 200) {
+        resolve(response);
+        return;
+      }
+
+      if (statusCode === 404 && url.includes('/upload/v')) {
+        const urlWithoutVersion = url.replace(/\/upload\/v\d+\//, '/upload/');
+        return resolve(fetchImageStream(urlWithoutVersion, attempt + 1));
+      }
+
+      response.resume();
+      resolve(null);
+    });
+
+    req.on('error', () => {
+      resolve(null);
+    });
+  });
+}

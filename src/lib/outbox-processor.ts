@@ -52,8 +52,8 @@ async function handleBatch(batch: Array<{
       await postToAdmin(path, payload);
       await markOutboxSuccess(event.id);
       processed += 1;
-    } catch (error: any) {
-      const message = error?.message || 'Admin sync failed';
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Admin sync failed';
       await markOutboxFailure(event.id, event.attempts, message);
       failed += 1;
     }
@@ -78,13 +78,13 @@ export async function processOutboxUntilEmpty(limit = 25): Promise<OutboxBatchRe
   let processed = 0;
   let failed = 0;
 
-  while (true) {
-    const batch = await claimOutboxBatch(limit);
-    if (batch.length === 0) break;
-
+  let batch = await claimOutboxBatch(limit);
+  while (batch.length > 0) {
     const result = await handleBatch(batch);
     processed += result.processed;
     failed += result.failed;
+
+    batch = await claimOutboxBatch(limit);
   }
 
   await refreshOutboxStatus();

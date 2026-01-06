@@ -2,21 +2,27 @@ import { Router } from 'express';
 import { internalAuth } from '../middleware/internal';
 import { cronAuth } from '../middleware/cron';
 import {
+  listStudioOwners,
+  updateStudioStatus,
+} from '../controllers/internal/studio-status.controller';
+import {
   createLegacyClient,
   deleteLegacyClient,
-  deleteLegacyPhoto,
   getLegacyClient,
-  getLegacyUploadSignature,
   listLegacyClients,
-  listStudioOwners,
+  updateLegacyClient,
+} from '../controllers/internal/legacy-clients.controller';
+import {
+  deleteLegacyPhoto,
+  getLegacyUploadSignature,
   saveLegacyPhotoRecord,
   saveLegacyPhotoRecords,
+} from '../controllers/internal/legacy-photos.controller';
+import {
   getOutboxStatus,
   processOutbox,
   processOutboxIfNeeded,
-  updateLegacyClient,
-  updateStudioStatus,
-} from '../controllers/internal.controller';
+} from '../controllers/internal/outbox.controller';
 import { getGalleryBySlug } from '../controllers/gallery.controller';
 
 const router = Router();

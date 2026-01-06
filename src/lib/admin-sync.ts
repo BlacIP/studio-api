@@ -46,8 +46,8 @@ type SyncStudioOwnerPayload = {
 async function safePost(eventType: OutboxEventType, path: string, payload: unknown) {
   try {
     await postToAdmin(path, payload);
-  } catch (error: any) {
-    const message = error?.message || 'Admin sync failed';
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Admin sync failed';
     await enqueueOutbox(eventType, payload, message);
     console.error(`Admin sync error (${eventType}):`, error);
   }
